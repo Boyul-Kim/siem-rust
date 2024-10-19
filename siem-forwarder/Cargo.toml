@@ -1,0 +1,10 @@
+[package]
+name = "siem-forwarder"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chrono = "0.4.38"
+indicatif = "0.17.8"
+sysinfo = "0.32.0"
+windows = {version = "0.58.0", features = ["Win32_Foundation", "Win32_System_EventLog", "Win32_System_SystemServices"]}
