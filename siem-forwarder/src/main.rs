@@ -6,28 +6,46 @@ use windows::Win32::System::EventLog::{
 };
 use windows::Win32::System::SystemServices::EVENTLOG_FORWARDS_READ;
 use windows::Win32::Foundation::{HANDLE, GetLastError, ERROR_INSUFFICIENT_BUFFER};
-use windows::core::{Error, PCWSTR};
+use windows::core::{Error as WinError, PCWSTR};
 use std::os::windows::ffi::OsStrExt;
 use std::ffi::OsStr;
+use tokio::net::TcpStream;
+use tokio::io::{AsyncWriteExt, BufWriter};
+use std::error::Error;
+use std::mem::size_of;
+use chrono;
 
-fn main() {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    // Establish a TCP connection
+    let mut stream = TcpStream::connect("127.0.0.1:8080").await?;
 
+    // Get the OS type
     let os_type: &str = env::consts::OS;
 
-    let run_logging: fn() -> Result<(), Error> = match os_type {
-        "windows" =>  log_windows_os,
-        "linux" => log_linux_os,
-        "mac" => log_mac_os,
-        _ => {
-            println!("Unsupported OS");
-            return;
+    // Define the logging function based on OS
+    match os_type {
+        "windows" => {
+            log_windows_os(stream).await?;
         }
-    };
+        "linux" => {
+            log_linux_os(stream).await?;
+        }
+        "macos" => {
+            log_mac_os(stream).await?;
+        }
+        _ => {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "Unsupported OS",
+            )) as Box<dyn Error>);
+        }
+    }
 
-    let _ = run_logging();
+    Ok(())
 }
 
-fn open_windows_event_log() -> Result<HANDLE, Error> {
+fn open_windows_event_log() -> Result<HANDLE, Box<dyn Error>> {
     let log_name: Vec<u16> = OsStr::new("System")
         .encode_wide()
         .chain(Some(0))
@@ -37,16 +55,16 @@ fn open_windows_event_log() -> Result<HANDLE, Error> {
     Ok(log_handle)
 }
 
-fn read_event_log(log_handle: HANDLE) -> Result<u32, Error> {
+async fn read_event_log(log_handle: HANDLE, mut stream: TcpStream) -> Result<u32, Box<dyn Error>> {
     let mut buffer: Vec<u8> = vec![0u8; 4096];
     let mut bytes_read: u32 = 0u32;
     let mut min_number_of_bytes_needed: u32 = 0u32;
 
     unsafe {
-        loop{
+        loop {
             let read_flags_value: u32 = EVENTLOG_SEQUENTIAL_READ.0 | EVENTLOG_FORWARDS_READ;
             let read_flags: READ_EVENT_LOG_READ_FLAGS = READ_EVENT_LOG_READ_FLAGS(read_flags_value);
-            let success: Result<(), Error> = ReadEventLogW(
+            let success: Result<(), WinError> = ReadEventLogW(
                 log_handle,
                 read_flags,
                 0,
@@ -62,9 +80,9 @@ fn read_event_log(log_handle: HANDLE) -> Result<u32, Error> {
                     buffer.resize(min_number_of_bytes_needed as usize, 0);
                 } else {
                     // Handle other errors
-                    return Err(Error::from_win32());
+                    return Err(Box::new(WinError::from_win32()) as Box<dyn Error>);
                 }
-            }   
+            }
 
             let mut offset: usize = 0;
             while offset < bytes_read as usize {
@@ -105,7 +123,13 @@ fn read_event_log(log_handle: HANDLE) -> Result<u32, Error> {
                 println!("Source Name: {}", source_name);
                 println!("Computer Name: {}", computer_name);
                 println!(" ");
+                println!("sending...");
+                let data = "finished\n";
+                let mut writer = BufWriter::new(&mut stream);
 
+                writer.write_all(data.as_bytes()).await?;
+                writer.flush().await?;
+                // stream.write_all(b"finished").await?;
                 offset += record.Length as usize;
             }
         }
@@ -114,26 +138,26 @@ fn read_event_log(log_handle: HANDLE) -> Result<u32, Error> {
     Ok(bytes_read)
 }
 
-fn log_windows_os() -> Result<(), Error> {
+async fn log_windows_os(stream: TcpStream) -> Result<(), Box<dyn Error>> {
     let log_handle: HANDLE = open_windows_event_log()?;
-    let bytes_read: u32 = read_event_log(log_handle)?;
+    let bytes_read: u32 = read_event_log(log_handle, stream).await?;
 
     println!("Read {} bytes from the event log", bytes_read);
 
-    unsafe { 
-        let _ = CloseEventLog(log_handle); 
+    unsafe {
+        let _ = CloseEventLog(log_handle);
     };
 
     Ok(())
 }
 
-fn log_linux_os() -> Result<(), Error> {
+async fn log_linux_os(stream: TcpStream) -> Result<(), Box<dyn Error>> {
     println!("RUNNING LINUX");
 
     Ok(())
 }
 
-fn log_mac_os() -> Result<(), Error> {
+async fn log_mac_os(stream: TcpStream) -> Result<(), Box<dyn Error>> {
     println!("RUNNING MAC");
 
     Ok(())
