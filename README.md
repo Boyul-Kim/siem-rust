@@ -6,11 +6,11 @@ SIEM built in Rust
 
 
 ## Starting the Indexer
-cd siem-indexer
-cargo build
-cargo  run
+- cd siem-indexer
+- cargo build
+- cargo  run
 
 ## Starting the Forwarder
-cd siem-forwarder
-cargo build
-cargo run
+- cd siem-forwarder
+- cargo build
+- cargo run
